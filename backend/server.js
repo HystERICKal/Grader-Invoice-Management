@@ -483,5 +483,5 @@ app.post('/api/reset', requireAuth, (req, res) => {
   res.json({ success: true });
 });
 
-// Start the server: Listen on PORT, log URL on success.
+// Start the server: Listen on PORT, log URL on success..
 app.listen(PORT, () => console.log(`Server on http://localhost:${PORT}`));
