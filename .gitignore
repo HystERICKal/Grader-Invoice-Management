@@ -1,0 +1,2 @@
+        # Ignore dependency directories
+        /backend/node_modules/
