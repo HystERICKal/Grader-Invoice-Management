@@ -229,19 +229,56 @@ app.post('/api/step2', requireAuth, (req, res) => {
     const allRows = Object.values(data.step1.sheets).flat();
     // Store combined raw data.
     data.step2 = { combined: allRows };
-    // Create unique graders: Group by email, sum milestones across all, keep first name.
+    // --- Robust unique graders logic ---
+    // Helper: Normalize header names for matching (trim, lowercase, collapse spaces)
+    function normalize(str) {
+      return String(str).trim().toLowerCase().replace(/\s+/g, ' ');
+    }
+
+    // Get actual header names for email, name, milestones, and course name
+    // This allows the code to work with any casing or spacing in the input file
+    const sampleRow = allRows[0] || {};
+    const headers = Object.keys(sampleRow);
+
+    // Find the header for email (contains 'email')
+    const emailHeader = headers.find(h => normalize(h).includes('email'));
+    // Find the header for grader name (contains 'name') but not 'course'
+    const nameHeader = headers.find(h => normalize(h).includes('name') && !normalize(h).includes('course'));
+    // Find the header for milestones (contains 'milestone')
+    const milestoneHeader = headers.find(h => normalize(h).includes('milestone'));
+    // Find the header for course name (contains both 'course' and 'name')
+    const courseHeader = headers.find(h => normalize(h).includes('course') && normalize(h).includes('name'));
+
+    // Group all rows by email address
+    // For each group (grader), sum all their milestones, keep the first name and course name
+    // This ensures that if a grader appears in multiple sheets, their milestones are summed
     const unique = _.chain(allRows)
-      .groupBy('External Grader Email')
-      .mapValues(group => ({
-        'External Grader Name': group[0]['External Grader Name'],
-        'External Grader Email': group[0]['External Grader Email'],
-        'Total Milestones': _.sumBy(group, 'Total No. of Milestones Graded')
-      }))
-      .values()
+      .groupBy(row => row[emailHeader]) // Group by normalized email header
+      .mapValues(group => {
+        // Use the first name and email from the group
+        // If a grader appears in multiple courses, join course names with comma
+        const courseNames = _.uniq(group.map(r => r[courseHeader])).filter(Boolean).join(', ');
+        return {
+          // Course Name: all unique course names for this grader
+          'Course Name': courseNames,
+          // External Grader Name: from the first row in the group
+          'External Grader Name': group[0][nameHeader],
+          // External Grader Email: from the first row in the group
+          'External Grader Email': group[0][emailHeader],
+          // Total Milestones: sum all milestones for this grader
+          'Total Milestones': _.sumBy(group, r => {
+            // Parse milestone value as number, fallback to 0 if missing or invalid
+            const val = r[milestoneHeader];
+            return typeof val === 'number' ? val : Number(val) || 0;
+          })
+        };
+      })
+      .values() // Convert object of groups to array
       .value();
-    // Store unique list.
+
+    // Store the unique graders list in session data for later steps
     data.step2.unique = unique;
-    // Respond with preview.
+    // Respond to frontend with the unique graders preview
     res.json({ success: true, preview: unique });
   } catch (err) {
     res.status(400).json({ error: err.message });
