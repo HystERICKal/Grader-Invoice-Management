@@ -76,13 +76,41 @@ app.post('/api/logout', requireAuth, (req, res) => {
 });
 
 // Helper function: Convert Excel buffer to JSON array (parses first/default sheet).
+// Helper function: Convert Excel buffer to JSON array (parses first/default sheet).
+// This version forces parsing all rows, even if some cells are missing, and ignores extra header rows.
 const workbookToJson = (buffer, sheetName) => {
   // Read the buffer as a workbook.
   const wb = xlsx.read(buffer, { type: 'buffer' });
   // Get the specified sheet (or first one).
   const ws = wb.Sheets[sheetName || wb.SheetNames[0]];
   // Convert sheet to JSON array of objects.
-  return xlsx.utils.sheet_to_json(ws);
+  // Use options:
+  // - defval: '' (fill missing cells with empty string)
+  // - raw: false (parse numbers as numbers)
+  // - range: 0 (start from first row)
+  // - header: 1 (get raw rows for header detection)
+  const rawRows = xlsx.utils.sheet_to_json(ws, { header: 1, defval: '' });
+  // Find the header row: first row with at least 3 non-empty cells
+  let headerRowIdx = 0;
+  for (let i = 0; i < rawRows.length; i++) {
+    const nonEmpty = rawRows[i].filter(cell => String(cell).trim() !== '');
+    if (nonEmpty.length >= 3) {
+      headerRowIdx = i;
+      break;
+    }
+  }
+  // Extract headers and data rows
+  const headers = rawRows[headerRowIdx].map(h => String(h).trim());
+  const dataRows = rawRows.slice(headerRowIdx + 1);
+  // Build array of objects for each data row
+  const json = dataRows.map(row => {
+    const obj = {};
+    headers.forEach((h, idx) => {
+      obj[h] = row[idx] !== undefined ? row[idx] : '';
+    });
+    return obj;
+  });
+  return json;
 };
 
 // Helper function: Validate if data has exact required columns.
@@ -120,39 +148,65 @@ app.post('/api/step1', requireAuth, upload.array('files'), (req, res) => {
         'External grader email',
         'Total no. of milestones graded'
       ]);
-      // Only keep the required columns in each row, preserving actual data
+      // --- HEADER MAPPING LOGIC ---
+      // Normalize headers for robust matching (trim, lowercase, collapse spaces)
+      function normalize(str) {
+        return String(str).trim().toLowerCase().replace(/\s+/g, ' ');
+      }
+      // List of required output headers (these will always be present in output)
+      const requiredKeys = [
+        'Course name',
+        'External grader name',
+        'External grader email',
+        'Total no. of milestones graded'
+      ];
+      // Normalize required headers
+      const normalizedRequired = requiredKeys.map(normalize);
+      // Get input headers from first row of parsed data
+      const inputKeys = Object.keys(json[0] || {});
+      const normalizedInput = inputKeys.map(normalize);
+      // Build a mapping from normalized required to actual input keys
+      const headerMap = {};
+      normalizedRequired.forEach((normReq, i) => {
+        const idx = normalizedInput.indexOf(normReq);
+        headerMap[requiredKeys[i]] = idx !== -1 ? inputKeys[idx] : null;
+      });
+      // For each row, copy value from input key to required output key
+      // This ensures all required columns are present, even if missing in input
       json = json.map(row => {
         const newRow = {};
-        const keys = [
-          'Course name',
-          'External grader name',
-          'External grader email',
-          'Total no. of milestones graded'
-        ];
-        keys.forEach(k => {
-          // Find matching key in row (case-insensitive)
-          const match = Object.keys(row).find(rk => rk.trim().toLowerCase() === k);
-          if (match !== undefined) {
-            newRow[k] = row[match];
-          }
+        requiredKeys.forEach(reqKey => {
+          const inpKey = headerMap[reqKey];
+          newRow[reqKey] = inpKey ? row[inpKey] : '';
         });
         return newRow;
       });
-      // Parse filename to extract cohort and course (e.g., Cohort_1_BUS200.csv -> key).
-      const filename = file.originalname.replace(/\.[^/.]+$/, ''); // Remove extension.
-      const match = filename.match(/Cohort_(\d+)_(\w+)/); // Regex for Cohort_X_COURSE.
+      // --- END HEADER MAPPING LOGIC ---
+      // Parse filename to extract cohort and course (e.g., Cohort_1_BUS200.csv -> key)
+      const filename = file.originalname.replace(/\.[^/.]+$/, ''); // Remove extension
+      const match = filename.match(/Cohort_(\d+)_(\w+)/); // Regex for Cohort_X_COURSE
       const key = match ? `Cohort_${match[1]}_${match[2]}` : filename;
-      // Store parsed data under key.
+
+      // --- Store all parsed and mapped rows for this sheet ---
+      // This ensures all rows are preserved, not just the first
       data.step1.sheets[key] = json;
-      // Handle duplicates: Group by email, sum milestones, keep first name.
-      data.step1.sheets[key] = _.chain(json)
-        .groupBy('External Grader Email')
-        .mapValues(group => ({
-          ...group[0], // Keep original row structure.
-          'Total No. of Milestones Graded': _.sumBy(group, 'Total No. of Milestones Graded') // Sum.
-        }))
-        .values()
-        .value();
+
+      // --- Handle duplicates: Only group by email if duplicates exist ---
+      // Find duplicate emails in this sheet
+      const emailCounts = _.countBy(json, row => row['External grader email']);
+      const hasDuplicates = Object.values(emailCounts).some(count => count > 1);
+      if (hasDuplicates) {
+        // If duplicates exist, group by email and sum milestones, keep first name
+        data.step1.sheets[key] = _.chain(json)
+          .groupBy('External grader email')
+          .mapValues(group => ({
+            ...group[0], // Keep original row structure
+            'Total no. of milestones graded': _.sumBy(group, 'Total no. of milestones graded') // Sum
+          }))
+          .values()
+          .value();
+      }
+      // If no duplicates, all rows are preserved as-is
     });
     // Flatten all sheets for preview.
     const preview = Object.values(data.step1.sheets).flat();
