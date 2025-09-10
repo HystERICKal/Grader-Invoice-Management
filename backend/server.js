@@ -86,11 +86,19 @@ const workbookToJson = (buffer, sheetName) => {
 };
 
 // Helper function: Validate if data has exact required columns.
+// Helper function: Validate if data has required columns (case-insensitive, ignores extra columns).
 const validateColumns = (data, required) => {
-  // Check if data is empty or first row keys don't match required (sorted for comparison).
-  if (data.length === 0 || !_.isEqual(_.keys(data[0]).sort(), required.sort())) {
-    // Throw error with expected columns list.
+  if (data.length === 0) {
     throw new Error(`Invalid columns. Expected: ${required.join(', ')}`);
+  }
+  // Lowercase keys for comparison
+  const keys = Object.keys(data[0]).map(k => k.trim().toLowerCase());
+  const requiredLower = required.map(k => k.trim().toLowerCase());
+  // Check if required columns are present in order
+  for (let i = 0; i < requiredLower.length; i++) {
+    if (keys[i] !== requiredLower[i]) {
+      throw new Error(`Invalid columns. Expected: ${required.join(', ')}`);
+    }
   }
 };
 
@@ -103,10 +111,33 @@ app.post('/api/step1', requireAuth, upload.array('files'), (req, res) => {
     data.step1 = { sheets: {} };
     // Loop over uploaded files.
     req.files.forEach(file => {
-      // Parse file buffer to JSON.
-      const json = workbookToJson(file.buffer);
-      // Validate required columns for grading sheets.
-      validateColumns(json, ['Course Name', 'External Grader Name', 'External Grader Email', 'Total No. of Milestones Graded']);
+  // Parse file buffer to JSON.
+  let json = workbookToJson(file.buffer);
+      // Validate required columns for grading sheets (case-insensitive, ignore extra columns).
+      validateColumns(json, [
+        'Course name',
+        'External grader name',
+        'External grader email',
+        'Total no. of milestones graded'
+      ]);
+      // Only keep the required columns in each row, preserving actual data
+      json = json.map(row => {
+        const newRow = {};
+        const keys = [
+          'Course name',
+          'External grader name',
+          'External grader email',
+          'Total no. of milestones graded'
+        ];
+        keys.forEach(k => {
+          // Find matching key in row (case-insensitive)
+          const match = Object.keys(row).find(rk => rk.trim().toLowerCase() === k);
+          if (match !== undefined) {
+            newRow[k] = row[match];
+          }
+        });
+        return newRow;
+      });
       // Parse filename to extract cohort and course (e.g., Cohort_1_BUS200.csv -> key).
       const filename = file.originalname.replace(/\.[^/.]+$/, ''); // Remove extension.
       const match = filename.match(/Cohort_(\d+)_(\w+)/); // Regex for Cohort_X_COURSE.
