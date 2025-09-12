@@ -367,24 +367,97 @@ app.post('/api/step5', requireAuth, upload.single('file'), (req, res) => {
     const data = getSessionData(req);
     // Ensure Step 4 was run.
     if (!data.step4) throw new Error('Run Step 4 first');
-    // Parse invoice data.
-    const invoiceJson = workbookToJson(req.file.buffer);
-    // Assume columns: A=Email (0), B=Previous Milestones (1), D=Status (3) - adjust if needed.
+    // --- Robust invoice sheet parsing and matching ---
+    // Helper: Normalize header names and status values for robust matching
+    function normalize(str) {
+      return String(str).trim().toLowerCase().replace(/\s+/g, ' ');
+    }
+
+    // --- Robust invoice sheet parsing and matching ---
+    // Helper: Normalize header names and status values for robust matching
+    function normalize(str) {
+      return String(str).trim().toLowerCase().replace(/\s+/g, ' ');
+    }
+
+    // Parse invoice data from uploaded file
+    // Use raw rows to find the correct header row
+    const wb = xlsx.read(req.file.buffer, { type: 'buffer' });
+    const ws = wb.Sheets[wb.SheetNames[0]];
+    // Get all rows as arrays (header: 1)
+    const rawRows = xlsx.utils.sheet_to_json(ws, { header: 1, defval: '' });
+
+    // Find the header row: first row containing 'external grader email' (case-insensitive)
+    let headerRowIdx = 0;
+    for (let i = 0; i < rawRows.length; i++) {
+      if (rawRows[i].some(cell => normalize(cell) === 'external grader email')) {
+        headerRowIdx = i;
+        break;
+      }
+    }
+
+    // Extract headers and data rows
+    const headers = rawRows[headerRowIdx].map(h => String(h).trim());
+    const dataRows = rawRows.slice(headerRowIdx + 1);
+
+    // Build array of objects for each data row, mapping header to cell value
+    const invoiceJson = dataRows.map(row => {
+      const obj = {};
+      headers.forEach((h, idx) => {
+        obj[h] = row[idx] !== undefined ? row[idx] : '';
+      });
+      return obj;
+    });
+
+    // Find actual header names for email, milestones, amount, and status using normalization
+    // Strictly match 'External Grader Email' column, ignore fallback to first column
+    const emailHeader = headers.find(h => normalize(h) === 'external grader email');
+    const milestoneHeader = headers.find(h => normalize(h).includes('milestone'));
+    const amountHeader = headers.find(h => normalize(h).includes('amount'));
+    const statusHeader = headers.find(h => normalize(h).includes('status'));
+
+    // If emailHeader is not found, return error to frontend
+    if (!emailHeader) {
+      return res.status(400).json({ error: "Could not find 'External Grader Email' column in invoice sheet." });
+    }
+
+    // Build maps for status and milestones by email
     const statusMap = {};
     const milestonesMap = {};
-    invoiceJson.forEach((row, index) => {
-      const email = row['External Grader Email'] || Object.keys(row)[0]; // Flexible.
-      statusMap[email] = row['Status'] || row[3]; // Default to column D.
-      milestonesMap[email] = row['Previous Milestones Graded'] || row[1]; // Column B.
+    invoiceJson.forEach(row => {
+      // Get email from strictly matched header
+      const email = row[emailHeader];
+      // Normalize status value for matching
+      let status = row[statusHeader];
+      status = normalize(status);
+      // Map status to 'Sent' or 'Not Sent' (case-insensitive)
+      if (status === 'sent') statusMap[email] = 'Sent';
+      else if (status === 'not sent') statusMap[email] = 'Not Sent';
+      else statusMap[email] = status ? row[statusHeader] : 'New Grader';
+      // Map milestones graded
+      milestonesMap[email] = row[milestoneHeader];
     });
-    // Save raw invoice data.
+
+    // Save raw invoice data for later steps
     data.step5 = { invoiceData: invoiceJson };
-    // Add status to differences.
-    data.step5.withStatus = data.step4.differences.map(row => ({
-      ...row,
-      'Invoice Status': statusMap[row['External Grader Email']] || 'New Grader'
-    }));
-    // Respond.
+
+    // Add invoice status and related columns to each grader in step4.differences
+    data.step5.withStatus = data.step4.differences.map(row => {
+      // Get email from step4 row
+      const email = row['External Grader Email'];
+      // Find matching invoice row by email
+      const invoiceRow = invoiceJson.find(r => r[emailHeader] === email);
+      return {
+        ...row,
+        // Add invoice status (Sent, Not Sent, or New Grader)
+        'Invoice Status': statusMap[email] || 'New Grader',
+        // Add milestones graded from invoice sheet
+        'Milestones Graded (Invoice)': milestonesMap[email] || '',
+        // Add amount to claim from invoice sheet
+        'Amount to Claim (USD)': amountHeader ? (invoiceRow?.[amountHeader] || '') : ''
+      };
+    });
+
+    // Respond with preview to frontend
     res.json({ success: true, preview: data.step5.withStatus });
   } catch (err) {
     res.status(400).json({ error: err.message });
