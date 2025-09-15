@@ -348,12 +348,6 @@ app.post('/api/step5', upload.single('file'), (req, res) => {
       return String(str).trim().toLowerCase().replace(/\s+/g, ' ');
     }
 
-    // --- Robust invoice sheet parsing and matching ---
-    // Helper: Normalize header names and status values for robust matching
-    function normalize(str) {
-      return String(str).trim().toLowerCase().replace(/\s+/g, ' ');
-    }
-
     // Parse invoice data from uploaded file
     // Use raw rows to find the correct header row
     const wb = xlsx.read(req.file.buffer, { type: 'buffer' });
@@ -383,6 +377,10 @@ app.post('/api/step5', upload.single('file'), (req, res) => {
       return obj;
     });
 
+    // Debug output: log detected headers and invoice row count
+    console.log('Step 5 Debug: Detected headers:', headers);
+    console.log('Step 5 Debug: Invoice rows:', invoiceJson.length);
+
     // Find actual header names for email, milestones, amount, and status using normalization
     // Strictly match 'External Grader Email' column, ignore fallback to first column
     const emailHeader = headers.find(h => normalize(h) === 'external grader email');
@@ -392,6 +390,7 @@ app.post('/api/step5', upload.single('file'), (req, res) => {
 
     // If emailHeader is not found, return error to frontend
     if (!emailHeader) {
+      console.log("Step 5 Debug: Could not find 'External Grader Email' header");
       return res.status(400).json({ error: "Could not find 'External Grader Email' column in invoice sheet." });
     }
 
@@ -432,9 +431,15 @@ app.post('/api/step5', upload.single('file'), (req, res) => {
       };
     });
 
+    // Debug output: log matched emails and final output
+    const matchedEmails = data.step5.withStatus.map(r => r['External Grader Email']);
+    console.log('Step 5 Debug: Matched emails:', matchedEmails);
+    console.log('Step 5 Debug: Output preview:', data.step5.withStatus);
+
     // Respond with preview to frontend
     res.json({ success: true, preview: data.step5.withStatus });
   } catch (err) {
+    console.log('Step 5 Debug: Error:', err.message);
     res.status(400).json({ error: err.message });
   }
 });
@@ -585,6 +590,10 @@ app.get('/api/download/:step', (req, res) => {
     // Differences.
     ws = xlsx.utils.json_to_sheet(step.differences);
     xlsx.utils.book_append_sheet(wb, ws, 'Differences');
+  } else if (stepNum === '5') {
+    // Step 5: Invoice check results
+    ws = xlsx.utils.json_to_sheet(step.withStatus || []);
+    xlsx.utils.book_append_sheet(wb, ws, 'Invoice Check');
   } else if (stepNum === '6') {
     // Payments.
     ws = xlsx.utils.json_to_sheet(step.payments);
