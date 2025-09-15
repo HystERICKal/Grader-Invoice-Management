@@ -37,12 +37,7 @@ app.use(session({
 }));
 
 // Middleware function to check if user is authenticated (session.user exists).
-const requireAuth = (req, res, next) => {
-  // If no user in session, return 401 Unauthorized.
-  if (!req.session.user) return res.status(401).json({ error: 'Unauthorized' });
-  // Otherwise, proceed to next middleware/route handler.
-  next();
-};
+// Authentication removed: all routes are now public.
 
 // Helper function to get or initialize session data (in-memory storage for this session).
 const getSessionData = (req) => req.session.data || (req.session.data = {});
@@ -50,30 +45,10 @@ const getSessionData = (req) => req.session.data || (req.session.data = {});
 const clearSessionData = (req) => { req.session.data = {}; };
 
 // Route: POST /api/login - Handle user login.
-app.post('/api/login', (req, res) => {
-  // Extract email and password from request body.
-  const { email, password } = req.body;
-  // Hardcoded demo check (replace with database/auth in production).
-  if (email === 'admin@example.com' && password === 'password123') {
-    // Set user in session if valid.
-    req.session.user = { email };
-    // Respond with success.
-    res.json({ success: true });
-  } else {
-    // Invalid credentials.
-    res.status(401).json({ error: 'Invalid credentials' });
-  }
-});
+// Login route removed: authentication is disabled.
 
 // Route: POST /api/logout - Handle logout.
-app.post('/api/logout', requireAuth, (req, res) => {
-  // Clear session data.
-  clearSessionData(req);
-  // Destroy the entire session.
-  req.session.destroy();
-  // Respond with success.
-  res.json({ success: true });
-});
+// Logout route removed: authentication is disabled.
 
 // Helper function: Convert Excel buffer to JSON array (parses first/default sheet).
 // Helper function: Convert Excel buffer to JSON array (parses first/default sheet).
@@ -131,7 +106,7 @@ const validateColumns = (data, required) => {
 };
 
 // Route: POST /api/step1 - Handle Step 1: Upload and organize grading sheets.
-app.post('/api/step1', requireAuth, upload.array('files'), (req, res) => {
+app.post('/api/step1', upload.array('files'), (req, res) => {
   try {
     // Get session data.
     const data = getSessionData(req);
@@ -219,7 +194,7 @@ app.post('/api/step1', requireAuth, upload.array('files'), (req, res) => {
 });
 
 // Route: POST /api/step2 - Handle Step 2: Merge cohorts into combined totals.
-app.post('/api/step2', requireAuth, (req, res) => {
+app.post('/api/step2', (req, res) => {
   try {
     // Get session data.
     const data = getSessionData(req);
@@ -286,7 +261,7 @@ app.post('/api/step2', requireAuth, (req, res) => {
 });
 
 // Route: POST /api/step3 - Handle Step 3: Load previous month's totals.
-app.post('/api/step3', requireAuth, upload.single('file'), (req, res) => {
+app.post('/api/step3', upload.single('file'), (req, res) => {
   try {
     // Get session data.
     const data = getSessionData(req);
@@ -313,7 +288,7 @@ app.post('/api/step3', requireAuth, upload.single('file'), (req, res) => {
 });
 
 // Route: POST /api/step4 - Handle Step 4: Calculate monthly differences.
-app.post('/api/step4', requireAuth, (req, res) => {
+app.post('/api/step4', (req, res) => {
   try {
     // Get session data.
     const data = getSessionData(req);
@@ -361,7 +336,7 @@ app.post('/api/step4', requireAuth, (req, res) => {
 });
 
 // Route: POST /api/step5 - Handle Step 5: Check previous invoice submissions.
-app.post('/api/step5', requireAuth, upload.single('file'), (req, res) => {
+app.post('/api/step5', upload.single('file'), (req, res) => {
   try {
     // Get session data.
     const data = getSessionData(req);
@@ -465,7 +440,7 @@ app.post('/api/step5', requireAuth, upload.single('file'), (req, res) => {
 });
 
 // Route: POST /api/step6 - Handle Step 6: Calculate payments.
-app.post('/api/step6', requireAuth, (req, res) => {
+app.post('/api/step6', (req, res) => {
   try {
     // Get session data.
     const data = getSessionData(req);
@@ -525,7 +500,7 @@ app.post('/api/step6', requireAuth, (req, res) => {
 });
 
 // Route: POST /api/step7 - Handle Step 7: Verify with Google Forms.
-app.post('/api/step7', requireAuth, upload.single('file'), (req, res) => {
+app.post('/api/step7', upload.single('file'), (req, res) => {
   try {
     // Get session data.
     const data = getSessionData(req);
@@ -574,13 +549,13 @@ app.post('/api/step7', requireAuth, upload.single('file'), (req, res) => {
 });
 
 // Route: GET /api/session - Fetch current session data for UI refresh.
-app.get('/api/session', requireAuth, (req, res) => {
+app.get('/api/session', (req, res) => {
   // Return all session data.
   res.json(getSessionData(req));
 });
 
 // Route: GET /api/download/:step - Generate and download XLSX for a step.
-app.get('/api/download/:step', requireAuth, (req, res) => {
+app.get('/api/download/:step', (req, res) => {
   // Get session data.
   const data = getSessionData(req);
   // Get step number as int.
@@ -629,7 +604,7 @@ app.get('/api/download/:step', requireAuth, (req, res) => {
 });
 
 // Route: GET /api/final-report - Generate full final XLSX with all sheets.
-app.get('/api/final-report', requireAuth, (req, res) => {
+app.get('/api/final-report', (req, res) => {
   // Ensure Step 7 completed.
   if (!req.session.data.step7) return res.status(400).json({ error: 'Run all steps first' });
   // Get data.
@@ -671,7 +646,7 @@ app.get('/api/final-report', requireAuth, (req, res) => {
 });
 
 // Route: POST /api/reset - Clear session data.
-app.post('/api/reset', requireAuth, (req, res) => {
+app.post('/api/reset', (req, res) => {
   // Clear data.
   clearSessionData(req);
   // Respond success.
