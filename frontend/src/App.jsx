@@ -4,10 +4,9 @@ import React, { useState, useEffect } from 'react';
 import { ThemeProvider, createTheme } from '@mui/material/styles';
 // Import MUI components: Container for layout, AppBar/Toolbar/Typography for header, Drawer/List/ListItem for sidebar, Box for flex, LinearProgress for progress, Alert for notifications, Button/TextField for interactions.
 import { Container, AppBar, Toolbar, Typography, Drawer, List, ListItem, ListItemText, Box, LinearProgress, Alert, Button, TextField, Dialog, DialogTitle, DialogContent, DialogActions } from '@mui/material';
-// Import icons: Login and Dashboard from MUI icons.
-import { Login, Dashboard } from '@mui/icons-material';
+// Import icon: Dashboard from MUI icons.
+import { Dashboard } from '@mui/icons-material';
 // Import custom components (defined below).
-import LoginDialog from './components/LoginDialog';
 import Step1 from './components/Step1';
 import Step2 from './components/Step2';
 import Step3 from './components/Step3';
@@ -31,10 +30,9 @@ const theme = createTheme({
 
 // Main App functional component.
 function App() {
-  // State: loggedIn boolean for auth status.
-  const [loggedIn, setLoggedIn] = useState(false);
-  // State: currentStep for navigation (0=login, 1-7=steps, 8=final).
-  const [currentStep, setCurrentStep] = useState(0);
+  // Authentication removed: no loggedIn state.
+  // State: currentStep for navigation (1-7=steps, 8=final).
+  const [currentStep, setCurrentStep] = useState(1);
   // State: sessionData to hold fetched data from backend.
   const [sessionData, setSessionData] = useState({});
   // State: progress percentage for workflow bar.
@@ -46,14 +44,10 @@ function App() {
 
   // Effect: When loggedIn changes to true, fetch session data and poll every 5s.
   useEffect(() => {
-    if (loggedIn) {
-      fetchSession();
-      // Set interval for polling (for real-time feel).
-      const interval = setInterval(fetchSession, 5000);
-      // Cleanup interval on unmount.
-      return () => clearInterval(interval);
-    }
-  }, [loggedIn]); // Dependency: re-run if loggedIn changes.
+    fetchSession();
+    const interval = setInterval(fetchSession, 5000);
+    return () => clearInterval(interval);
+  }, []); // Always poll session data.
 
   // Helper function: Fetch session data from backend.
   const fetchSession = async () => {
@@ -78,33 +72,7 @@ function App() {
     setTimeout(() => setAlert({ ...alert, open: false }), 3000);
   };
 
-  // Handler: Login submission.
-  const handleLogin = async (email, password) => {
-    try {
-      // POST /api/login.
-      await axios.post('/api/login', { email, password });
-      // Set logged in and start at Step 1.
-      setLoggedIn(true);
-      setCurrentStep(1);
-    } catch (err) {
-      // Show error.
-      showAlert('Login failed', 'error');
-    }
-  };
 
-  // Handler: Logout.
-  const handleLogout = async () => {
-    try {
-      // POST /api/logout.
-      await axios.post('/api/logout');
-    } catch (err) {
-      // Ignore errors on logout.
-    }
-    // Reset states.
-    setLoggedIn(false);
-    setCurrentStep(0);
-    setSessionData({});
-  };
 
   // Helper: Update config (e.g., month names).
   const updateConfig = (key, value) => setConfig({ ...config, [key]: value });
@@ -115,19 +83,11 @@ function App() {
     { label: 'Step 2: Merge Cohorts', component: <Step2 showAlert={showAlert} sessionData={sessionData} config={config} updateConfig={updateConfig} /> },
     { label: 'Step 3: Load Previous Totals', component: <Step3 showAlert={showAlert} sessionData={sessionData} config={config} updateConfig={updateConfig} /> },
     { label: 'Step 4: Calculate Differences', component: <Step4 showAlert={showAlert} sessionData={sessionData} config={config} updateConfig={updateConfig} /> },
-    { label: 'Step 5: Check Invoices', component: <Step5 showAlert={showAlert} sessionData={sessionData} /> },
+  { label: 'Step 5: Check Invoices', component: <Step5 showAlert={showAlert} sessionData={sessionData} updateSessionData={setSessionData} /> },
     { label: 'Step 6: Compute Payments', component: <Step6 showAlert={showAlert} sessionData={sessionData} config={config} updateConfig={updateConfig} /> },
     { label: 'Step 7: Verify Forms', component: <Step7 showAlert={showAlert} sessionData={sessionData} /> },
   ];
 
-  // If not logged in, show only login dialog.
-  if (!loggedIn) {
-    return (
-      <ThemeProvider theme={theme}>
-        <LoginDialog onLogin={handleLogin} />
-      </ThemeProvider>
-    );
-  }
 
   // Logged-in UI: Flex layout with header, sidebar, main content.
   return (
@@ -141,8 +101,6 @@ function App() {
             <Typography variant="h6">Invoice Grader App</Typography>
             {/* Progress display. */}
             <Typography sx={{ flexGrow: 1 }} ml={2}>Progress: {Math.round(progress)}%</Typography>
-            {/* Logout button. */}
-            <Button color="inherit" onClick={handleLogout}>Logout</Button>
           </Toolbar>
         </AppBar>
         {/* Permanent sidebar drawer for navigation. */}

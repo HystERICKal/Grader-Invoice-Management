@@ -451,18 +451,22 @@ app.post('/api/step6', (req, res) => {
     const data = getSessionData(req);
     // Ensure Step 5 was run.
     if (!data.step5) throw new Error('Run Step 5 first');
-    // Get threshold from body (default 10).
-    const { threshold = 10 } = req.body;
-    // Fixed rate $0.8 per milestone.
+    // Fixed rate per milestone (USD)
     const rate = 0.8;
-    // Use saved invoice data for unpaid previous.
+    // Use saved invoice data for unpaid previous milestones
     const invoiceData = data.step5.invoiceData || [];
-    // Compute for each row.
+
+    // Compute payment for each grader
     const payments = data.step5.withStatus.map(row => {
-      // Lookup unpaid previous.
+      // Find matching invoice row for unpaid previous milestones
       const invoiceRow = _.find(invoiceData, r => r['External Grader Email'] === row['External Grader Email']);
+      // Unpaid previous milestones (if present in invoice sheet)
       const unpaidPrev = invoiceRow ? (invoiceRow['Previous Milestones Graded'] || invoiceRow[1] || 0) : 0;
-      // Determine total payable based on status.
+
+      // Determine total payable milestones based on invoice status
+      // - If status is 'Submitted' or 'Send Invoice', pay only for this month's difference
+      // - If status is 'Not Submitted' or "Don't Send Invoice", pay for unpaid previous + this month's difference
+      // - If new grader, pay for this month's difference
       const status = row['Invoice Status'];
       let totalPayable;
       if (status === 'Submitted' || status === 'Send Invoice') {
@@ -472,28 +476,32 @@ app.post('/api/step6', (req, res) => {
       } else { // New Grader
         totalPayable = row['Adjusted Difference'];
       }
-      // Calculate amount.
+
+      // Calculate payment amount at fixed rate
       const amount = totalPayable * rate;
-      // Check threshold.
-      const flag = totalPayable < threshold ? 'Below Threshold - No Payment' : '';
-      const finalAmount = flag ? 0 : amount;
-      // Return extended row.
+
+      // If the payment amount is below $100, add a flag
+      // Do NOT set payment to $0, just indicate the flag
+      const flag = amount < 100 ? 'Below $100 Threshold' : '';
+
+      // Return extended row with all details
       return {
         ...row,
         'Unpaid Previous': unpaidPrev,
         'Total Payable Milestones': totalPayable,
-        'Payment Amount': finalAmount,
+        'Payment Amount': amount,
         'Threshold Flag': flag
       };
     });
-    // Compute totals for KPIs.
+
+    // Compute totals for KPIs (sum of milestones and payment amounts)
     data.step6 = {
-      threshold,
       payments,
       totalPayable: _.sumBy(payments, 'Total Payable Milestones'),
       totalAmount: _.sumBy(payments, 'Payment Amount')
     };
-    // Respond with preview and KPIs.
+
+    // Respond with preview and KPIs to frontend
     res.json({
       success: true,
       preview: payments,
