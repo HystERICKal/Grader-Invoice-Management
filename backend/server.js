@@ -377,10 +377,6 @@ app.post('/api/step5', upload.single('file'), (req, res) => {
       return obj;
     });
 
-    // Debug output: log detected headers and invoice row count
-    console.log('Step 5 Debug: Detected headers:', headers);
-    console.log('Step 5 Debug: Invoice rows:', invoiceJson.length);
-
     // Find actual header names for email, milestones, amount, and status using normalization
     // Strictly match 'External Grader Email' column, ignore fallback to first column
     const emailHeader = headers.find(h => normalize(h) === 'external grader email');
@@ -390,7 +386,6 @@ app.post('/api/step5', upload.single('file'), (req, res) => {
 
     // If emailHeader is not found, return error to frontend
     if (!emailHeader) {
-      console.log("Step 5 Debug: Could not find 'External Grader Email' header");
       return res.status(400).json({ error: "Could not find 'External Grader Email' column in invoice sheet." });
     }
 
@@ -430,11 +425,6 @@ app.post('/api/step5', upload.single('file'), (req, res) => {
         'Amount to Claim (USD)': amountHeader ? (invoiceRow?.[amountHeader] || '') : ''
       };
     });
-
-    // Debug output: log matched emails and final output
-    const matchedEmails = data.step5.withStatus.map(r => r['External Grader Email']);
-    console.log('Step 5 Debug: Matched emails:', matchedEmails);
-    console.log('Step 5 Debug: Output preview:', data.step5.withStatus);
 
     // Respond with preview to frontend
     res.json({ success: true, preview: data.step5.withStatus });
